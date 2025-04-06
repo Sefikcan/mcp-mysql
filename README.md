@@ -129,4 +129,3 @@ The project is written in TypeScript and provides type definitions for:
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
-# mcp-mysql
