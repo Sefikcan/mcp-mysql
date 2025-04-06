@@ -12,20 +12,3 @@ export interface DatabaseConfig {
 export type ToolResponse = ServerResult;
 
 export type QueryResult = [RowDataPacket[] | RowDataPacket[][] | any, FieldPacket[]];
-
-export interface ConnectDbArgs {
-    host: string;
-    user: string;
-    password: string;
-    database: string;
-    port?: number;
-}
-
-export interface QueryArgs {
-    sql: string;
-    params?: (string | number | boolean | null)[];
-}
-
-export interface DescribeTableArgs {
-    table: string;
-} 

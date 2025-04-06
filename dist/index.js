@@ -1,61 +1,32 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import {
-    CallToolRequestSchema,
-    ErrorCode,
-    ListToolsRequestSchema,
-    McpError,
-} from '@modelcontextprotocol/sdk/types.js';
+import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError, } from '@modelcontextprotocol/sdk/types.js';
 import { ConfigManager } from './config.js';
 import { DatabaseManager } from './database.js';
 import { validateSelectQuery, validateNonSelectQuery } from './utils.js';
-import { 
-    ConnectDbSchema, 
-    QuerySchema, 
-    ExecuteSchema, 
-    DescribeTableSchema,
-    toolSchemas,
-    type ConnectDbInput,
-    type QueryInput,
-    type ExecuteInput,
-    type DescribeTableInput
-} from './schemas.js';
-import type { ToolResponse } from './types.js';
-
+import { ConnectDbSchema, QuerySchema, ExecuteSchema, DescribeTableSchema, toolSchemas } from './schemas.js';
 class MySQLServer {
-    private server: Server;
-    private dbManager: DatabaseManager;
-    private configManager: ConfigManager;
-
     constructor() {
-        this.server = new Server(
-            { name: "mysql-server", version: "1.0.0" },
-            { capabilities: { tools: {} } }
-        );
+        this.server = new Server({ name: "mysql-server", version: "1.0.0" }, { capabilities: { tools: {} } });
         this.dbManager = DatabaseManager.getInstance();
         this.configManager = ConfigManager.getInstance();
-
         this.setupToolHandlers();
         this.setupErrorHandling();
     }
-
-    private setupErrorHandling() {
+    setupErrorHandling() {
         this.server.onerror = (error) => console.error('[MCP Error]', error);
         process.on('SIGINT', async () => {
             await this.cleanup();
             process.exit(0);
         });
     }
-
-    private setupToolHandlers() {
+    setupToolHandlers() {
         this.server.setRequestHandler(ListToolsRequestSchema, () => ({
             tools: this.getTools()
         }));
-
         this.server.setRequestHandler(CallToolRequestSchema, this.handleToolRequest.bind(this));
     }
-
-    private getTools() {
+    getTools() {
         return [
             this.createTool("connect_db", "Connect to MySQL database", toolSchemas.connect_db),
             this.createTool("query", "Execute a SELECT query", toolSchemas.query),
@@ -64,14 +35,11 @@ class MySQLServer {
             this.createTool("describe_table", "Get table structure", toolSchemas.describe_table)
         ];
     }
-
-    private createTool(name: string, description: string, schema: object) {
+    createTool(name, description, schema) {
         return { name, description, inputSchema: schema };
     }
-
-    private async handleToolRequest(request: any) {
+    async handleToolRequest(request) {
         const { name, arguments: args = {} } = request.params;
-
         try {
             switch (name) {
                 case 'connect_db': {
@@ -95,65 +63,54 @@ class MySQLServer {
                 default:
                     throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${name}`);
             }
-        } catch (error: unknown) {
+        }
+        catch (error) {
             if (error && typeof error === 'object' && 'name' in error && error.name === 'ZodError' && 'errors' in error) {
-                const zodError = error as { errors: Array<{ message: string }> };
-                throw new McpError(
-                    ErrorCode.InvalidParams,
-                    `Invalid parameters: ${zodError.errors.map(e => e.message).join(', ')}`
-                );
+                const zodError = error;
+                throw new McpError(ErrorCode.InvalidParams, `Invalid parameters: ${zodError.errors.map(e => e.message).join(', ')}`);
             }
             throw error;
         }
     }
-
-    private async handleConnectDb(args: ConnectDbInput): Promise<ToolResponse> {
+    async handleConnectDb(args) {
         this.configManager.setDbConfig(args);
         await this.dbManager.connect(args);
         return this.createTextResponse("Successfully connected to database");
     }
-
-    private async handleQuery(args: QueryInput): Promise<ToolResponse> {
+    async handleQuery(args) {
         if (!validateSelectQuery(args.sql)) {
             throw new McpError(ErrorCode.InvalidParams, 'Only SELECT queries allowed');
         }
         const [rows] = await this.dbManager.query(args.sql, args.params || []);
         return this.createTextResponse(JSON.stringify(rows, null, 2));
     }
-
-    private async handleExecute(args: ExecuteInput): Promise<ToolResponse> {
+    async handleExecute(args) {
         if (!validateNonSelectQuery(args.sql)) {
             throw new McpError(ErrorCode.InvalidParams, 'Use query tool for SELECT statements');
         }
         const [result] = await this.dbManager.query(args.sql, args.params || []);
         return this.createTextResponse(JSON.stringify(result, null, 2));
     }
-
-    private async handleListTables(): Promise<ToolResponse> {
+    async handleListTables() {
         const [rows] = await this.dbManager.query("SHOW TABLES");
         return this.createTextResponse(JSON.stringify(rows, null, 2));
     }
-
-    private async handleDescribeTable(args: DescribeTableInput): Promise<ToolResponse> {
+    async handleDescribeTable(args) {
         const [rows] = await this.dbManager.query("DESCRIBE ??", [args.table]);
         return this.createTextResponse(JSON.stringify(rows, null, 2));
     }
-
-    private createTextResponse(text: string): ToolResponse {
+    createTextResponse(text) {
         return { content: [{ type: "text", text }] };
     }
-
-    private async cleanup(): Promise<void> {
+    async cleanup() {
         await this.dbManager.cleanup();
         await this.server.close();
     }
-
-    async run(): Promise<void> {
+    async run() {
         const transport = new StdioServerTransport();
         await this.server.connect(transport);
         console.error("MySQL MCP server running on stdio");
     }
 }
-
 const server = new MySQLServer();
 server.run().catch(console.error);
